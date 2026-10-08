@@ -1,0 +1,57 @@
+name: Feature artifacts (Android + macOS)
+
+on:
+  push:
+    branches: [build/artifacts]
+  workflow_dispatch:
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+      - run: chmod +x gradlew
+      - name: Build Prod Debug APK (debug key, no secrets needed)
+        run: ./gradlew assembleProdDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: app/build/outputs/apk/prod/debug/*.apk
+
+  macos-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Write local.properties
+        run: |
+          echo "LASTFM_API_KEY=${{ secrets.LASTFM_API_KEY }}" > local.properties
+          echo "LASTFM_SECRET=${{ secrets.LASTFM_SECRET }}" >> local.properties
+      - run: chmod +x gradlew
+      - name: Tests
+        run: ./gradlew :shared:jvmTest :desktopApp:test
+      - name: Build DMG and app bundle
+        run: ./gradlew :desktopApp:packageDmg :desktopApp:createDistributable
+      - name: Collect
+        run: |
+          mkdir -p dist
+          for f in desktopApp/build/compose/binaries/main/dmg/*.dmg; do
+            [ -f "$f" ] && cp "$f" dist/
+          done
+          ditto -c -k --keepParent desktopApp/build/compose/binaries/main/app/BitChord.app dist/BitChord-macos-arm64.zip
+          ls -lh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-artifacts
+          path: dist/*
