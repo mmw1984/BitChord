@@ -110,6 +110,17 @@ object LocaleTags {
         return canon(first) == canon(second)
     }
 
-    fun isChineseTag(tag: String): Boolean =
-        tag.trim().replace('_', '-').lowercase(Locale.ROOT).startsWith("zh")
+    /** True for a Hans<->Hant pair in either direction; unknown sources never qualify. */
+    fun isScriptConversion(first: String, second: String): Boolean {
+        fun script(tag: String): String? {
+            val lower = tag.trim().replace('_', '-').lowercase(Locale.ROOT)
+            if (!lower.startsWith("zh")) return null
+            if ("tw" in lower || "hant" in lower || "hk" in lower || "mo" in lower) return "hant"
+            if ("cn" in lower || "hans" in lower || "sg" in lower) return "hans"
+            return null // bare "zh" names no script
+        }
+        val a = script(first) ?: return false
+        val b = script(second) ?: return false
+        return a != b
+    }
 }

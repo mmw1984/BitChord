@@ -92,6 +92,7 @@
     <string name="lyrics_saved_with_download">歌词已随此次下载保存</string>
     <string name="lyrics_share_pick_limit">卡片已满</string>
     <string name="lyrics_translated_to">已翻译为%1$s</string>
+    <string name="lyrics_converted_to">已转换为%1$s</string>
     <string name="lyrics_translation_unavailable">翻译目前不可用</string>
     <string name="medium_quality">Medium Quality</string>
     <string name="mono">单声道</string>

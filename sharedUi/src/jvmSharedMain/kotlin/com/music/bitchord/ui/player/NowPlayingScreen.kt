@@ -1964,6 +1964,7 @@ fun NowPlayingScreen(
                             TranslationToggleButton(
                                 state = lyricsTranslation.translationState,
                                 showingTranslation = lyricsTranslation.showingTranslation,
+                                showingConversion = lyricsTranslation.showingConversion,
                                 enabled = !lyrics.isNullOrEmpty(),
                                 onClick = lyricsTranslation.toggleTranslation,
                             )
@@ -3354,6 +3355,7 @@ fun NowPlayingScreen(
                             TranslationToggleButton(
                                 state = lyricsTranslation.translationState,
                                 showingTranslation = lyricsTranslation.showingTranslation,
+                                showingConversion = lyricsTranslation.showingConversion,
                                 // Not tappable on the way out: a disc at 20%
                                 // opacity is on its way to gone, not a target.
                                 enabled = translateShown && !lyrics.isNullOrEmpty(),

@@ -434,7 +434,7 @@ internal sealed interface LyricsTranslationUiState {
     data object SameLanguage : LyricsTranslationUiState
 }
 
-internal enum class LyricsDisplayMode { Original, Romanized, Translated }
+internal enum class LyricsDisplayMode { Original, Romanized, Translated, Converted }
 
 private const val TRANSLATION_MOTION_MS = 540
 private const val PARTICLES_PER_VOICE = 18
@@ -1246,10 +1246,11 @@ private fun ContentDrawScope.sweepTo(
 internal fun TranslationToggleButton(
     state: LyricsTranslationUiState,
     showingTranslation: Boolean,
+    showingConversion: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val active = showingTranslation || state is LyricsTranslationUiState.Loading
+    val active = showingTranslation || showingConversion || state is LyricsTranslationUiState.Loading
     val tint = when {
         !enabled || state is LyricsTranslationUiState.SameLanguage -> Color.White.copy(alpha = 0.42f)
         active -> Color.White
@@ -2690,6 +2691,8 @@ internal class LyricsTranslationUi(
     val translationState: LyricsTranslationUiState,
     val romanizationState: LyricsTranslationUiState,
     val showingTranslation: Boolean,
+    /** A Hans<->Hant conversion is showing (replaces the original outright). */
+    val showingConversion: Boolean,
     val showingRomanization: Boolean,
     /** Bumped on every switch between versions — the particle motion's trigger. */
     val transition: Int,
@@ -2746,6 +2749,7 @@ internal fun rememberLyricsTranslation(
         mutableStateOf(LyricsDisplayMode.Original)
     }
     val showingTranslation = lyricsDisplayMode == LyricsDisplayMode.Translated
+    val showingConversion = lyricsDisplayMode == LyricsDisplayMode.Converted
     val showingRomanization = lyricsDisplayMode == LyricsDisplayMode.Romanized
     var translationTransition by remember(trackId) { mutableIntStateOf(0) }
     var translationJob by remember(trackId, translationLanguage, lyrics) {
@@ -2760,23 +2764,33 @@ internal fun rememberLyricsTranslation(
             romanizationJob?.cancel()
         }
     }
+    // The panel itself always keeps the original words, except in Converted
+    // mode where the script conversion *is* the words; only the one-line
+    // strip over the scrubber swaps to [displayedLyrics]. One mode at a time
+    // by construction — [lyricsDisplayMode] holds a single value.
     val displayedLyrics = when (lyricsDisplayMode) {
-        LyricsDisplayMode.Translated ->
+        LyricsDisplayMode.Translated,
+        LyricsDisplayMode.Converted,
+        ->
             (translationState as? LyricsTranslationUiState.Ready)?.lines ?: lyrics.orEmpty()
         LyricsDisplayMode.Romanized ->
             (romanizationState as? LyricsTranslationUiState.Ready)?.lines ?: lyrics.orEmpty()
         LyricsDisplayMode.Original -> lyrics.orEmpty()
     }
     // What the panel draws in small type under each original line, Apple
-    // Music style. The panel itself always keeps the original words; only the
-    // one-line strip over the scrubber swaps to [displayedLyrics]. One mode at
-    // a time by construction — [lyricsDisplayMode] holds a single value.
+    // Music style. A script conversion replaces the original outright, so it
+    // draws no sub-lines; translations do.
     val lyricsSubLines = when (lyricsDisplayMode) {
         LyricsDisplayMode.Translated -> (translationState as? LyricsTranslationUiState.Ready)?.lines
         LyricsDisplayMode.Romanized -> (romanizationState as? LyricsTranslationUiState.Ready)?.lines
-        LyricsDisplayMode.Original -> null
+        LyricsDisplayMode.Original, LyricsDisplayMode.Converted -> null
     }
     val translationScope = rememberCoroutineScope()
+    // Whether the Ready translation is a Hans<->Hant conversion (replaces the
+    // original) rather than a translation (shown as sub-lines).
+    var translationIsConversion by remember(trackId, translationLanguage, lyrics) {
+        mutableStateOf(false)
+    }
     val autoTranslate by PlayerSettings.autoTranslateLyrics.collectAsStateWithLifecycle()
     var autoFiredKey by remember(trackId, translationLanguage) { mutableStateOf<String?>(null) }
     // Auto-translate to the app language (zh-Hant -> zh-TW, zh-Hans -> zh-CN
@@ -2804,7 +2818,16 @@ internal fun rememberLyricsTranslation(
         ) {
             is LyricsTranslationResult.Translated -> {
                 translationState = LyricsTranslationUiState.Ready(result.lines)
-                lyricsDisplayMode = LyricsDisplayMode.Translated
+                translationIsConversion =
+                    com.music.bitchord.data.LocaleTags.isScriptConversion(
+                        result.sourceLanguage,
+                        translationLanguage,
+                    )
+                lyricsDisplayMode = if (translationIsConversion) {
+                    LyricsDisplayMode.Converted
+                } else {
+                    LyricsDisplayMode.Translated
+                }
                 translationTransition++
             }
             is LyricsTranslationResult.SameLanguage -> {
@@ -2816,10 +2839,21 @@ internal fun rememberLyricsTranslation(
         }
     }
     val toggleTranslation: () -> Unit = toggleTranslation@{
+        // A script conversion replaces the original outright; anything else
+        // shows as sub-lines under it.
+        fun showTranslated(converted: Boolean) {
+            lyricsDisplayMode = if (converted) {
+                LyricsDisplayMode.Converted
+            } else {
+                LyricsDisplayMode.Translated
+            }
+        }
         when (val state = translationState) {
             is LyricsTranslationUiState.Ready -> {
-                lyricsDisplayMode = if (showingTranslation) {
+                lyricsDisplayMode = if (showingTranslation || showingConversion) {
                     LyricsDisplayMode.Original
+                } else if (translationIsConversion) {
+                    LyricsDisplayMode.Converted
                 } else {
                     LyricsDisplayMode.Translated
                 }
@@ -2851,7 +2885,12 @@ internal fun rememberLyricsTranslation(
                     ) {
                         is LyricsTranslationResult.Translated -> {
                             translationState = LyricsTranslationUiState.Ready(result.lines)
-                            lyricsDisplayMode = LyricsDisplayMode.Translated
+                            translationIsConversion =
+                                com.music.bitchord.data.LocaleTags.isScriptConversion(
+                                    result.sourceLanguage,
+                                    translationLanguage,
+                                )
+                            showTranslated(translationIsConversion)
                             translationTransition++
                             haptics.play(Haptic.ToggleOn)
                         }
@@ -2933,6 +2972,8 @@ internal fun rememberLyricsTranslation(
             stringResource(Res.string.romanizing_lyrics)
         showingTranslation ->
             stringResource(Res.string.lyrics_translated_to, translationLanguageName)
+        showingConversion ->
+            stringResource(Res.string.lyrics_converted_to, translationLanguageName)
         showingRomanization ->
             stringResource(Res.string.lyrics_romanized)
         translationState is LyricsTranslationUiState.SameLanguage ->
@@ -2951,6 +2992,7 @@ internal fun rememberLyricsTranslation(
         translationState = translationState,
         romanizationState = romanizationState,
         showingTranslation = showingTranslation,
+        showingConversion = showingConversion,
         showingRomanization = showingRomanization,
         transition = translationTransition,
         reduceMotion = reduceTranslationMotion,
